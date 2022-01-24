@@ -1,30 +1,10 @@
 /**
  *
- *  @author Lonca Paweł S23452
+ * @author Lonca Paweł S23452
  *
  */
 
 package zad1;
-
-// https://stooq.pl/q/d/l/?c=1&s=xdwd.uk&d1=20150325&d2=20220121&i=y
-// https://stooq.pl/q/d/l/?c=1&s=<ticker>&d1=<yyyymmdd>&d2=<yyyymmdd>&i=<interval>
-// intervals:
-//  * y - yearly
-//  * q - quarterly
-//  * m - monthly
-//  * w - weekly
-//  * d - daily
-
-//TODO: 2. Wyliczenie następujących statystyk dla pobranych danych:
-//    - wydruk daty początkowej i końcowej - może być inna niż podana przez użytkownika
-//    a. Stopa zwrotu w okresie
-//    b. Średnie dzienne odchylenie stóp zwrotu
-//    c. Średni dzienny obrót
-//    d. cena minimalna w okresie
-//    e. cena maksymalna w okresie
-//    f. średnia cena w okresie
-//    g. mediana cen w okresie
-// TODO: możliwość zapisania wyników do pliku
 
 static isCorrectDate(dateStr) {
     def daysInMonth = [
@@ -51,12 +31,42 @@ static isCorrectDate(dateStr) {
     return true
 }
 
-static parseRow(row, sep=";") {
-    def elems = row.split(sep)
-    return ["date": elems[0], "price": elems[4], "volume": elems[5]]
+static getFormattedBigDecimal(bigDecimal) {
+    return bigDecimal.setScale(2, BigDecimal.ROUND_HALF_UP)
 }
 
-assert args.length == 4, "You must provide four arguments"
+
+static parseRow(row, sep = ";") {
+    def elems = row.split(sep)
+    return ["date": elems[0], "price": new BigDecimal(elems[4]), "volume": new Long(elems[5])]
+}
+
+static getReturnRate(parsedRows) {
+    return (parsedRows.last().get("price") / parsedRows.first().get("price") - 1) * 100
+}
+
+static getEffectiveDates(parsedRows) {
+    return new Tuple2(parsedRows.first().get("date"), parsedRows.last().get("date"))
+}
+
+static getMedian(values) {
+    def sortedValues = values.toSorted()
+    def middleIndex = values.size().intdiv(2)
+    return values.size() % 2 ? sortedValues[middleIndex] : (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2
+}
+
+static getPriceStats(parsedRows) {
+    def prices = parsedRows.collect { it.get("price") }
+
+    return new Tuple4<>(prices.min(), prices.average(), getMedian(prices), prices.max())
+}
+
+static getVolumeStats(parsedRows) {
+    def volumeInCurrencyList = parsedRows.collect { it.get("price") * it.get("volume") }
+    return volumeInCurrencyList.average()
+}
+
+assert args.length == 4, "You must provide at least four arguments"
 
 def ticker = args[0]
 
@@ -77,15 +87,25 @@ def interval = args[3]
 assert allowedIntervals.contains(interval), "Interval must be one of $allowedIntervals"
 
 def url = new URL("https://stooq.pl/q/d/l/?c=1&s=$ticker&d1=${startDate.replace("-", "")}&d2=${endDate.replace("-", "")}&i=$interval")
-println(url)
+
 def output = url.getText()
-println(output)
 
 if (output.trim() == "Brak danych") {
     println("No data found for the parameters:\n\t> ticker: $ticker\n\t> start date: $startDate\n\t> end date: $endDate")
     return
 }
 
-output.split("\n").tail()
-    .each {println(parseRow(it))}
+def rows = output.split("(\r)?\n").tail()
+        .findAll { it.split(";").size() == 6 }
+        .collect { parseRow(it) }
 
+def effectiveDates = getEffectiveDates(rows)
+println("Start date: ${effectiveDates[0]}, end date: ${effectiveDates[1]}")
+println("The return rate is ${getFormattedBigDecimal(getReturnRate(rows))} %")
+def pricesStats = getPriceStats(rows)
+println("Price statistics:\n\t" +
+        "low: ${getFormattedBigDecimal(pricesStats[0])}\n\t" +
+        "average: ${getFormattedBigDecimal(pricesStats[1])}\n\t" +
+        "median: ${getFormattedBigDecimal(pricesStats[2])}\n\t" +
+        "high: ${getFormattedBigDecimal(pricesStats[3])}")
+println("The average volume was ${getFormattedBigDecimal(getVolumeStats(rows))}")
